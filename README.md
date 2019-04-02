@@ -37,7 +37,8 @@ Local handling for Tuya Devices under Home-Assistant and Hassio, getting paramet
              friendly_name: TUYA_SW01
              id: 101
 ```
-      NOTE: (as many switch declared as the device has, take note that: If your device is composed (ex. one switch with a independent led light in it), this led can be declared as a 'switch'. ¡This Python script does not include RGB handling! (RGB Handling is independent and must be declared as a 'light' custom device, you can search web for examples, but i have not test this).
+   NOTE: (as many switch declared as the device has, take note that: If your device is composed (ex. one switch with a independent led light in it), this led can be declared as a 'switch'. ¡This Python script does not include RGB handling! (RGB Handling is independent and must be declared as a 'light' custom device, you can search web for examples, but i have not test this).
+      
    5. Use this declaration on your configuration.yaml file, for stating sensors that handle its attributes:
 ```   
        sensor:
