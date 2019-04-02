@@ -57,6 +57,7 @@ Local handling for Tuya Devices under Home-Assistant and Hassio, getting paramet
    6. If all gone OK (your device's parameters local_key and device_id are correct), your switch is working, so the sensors are working too.
    
    NOTE: You can do as changes as you want in scripts ant/or yaml files. But: You can't declare your "custom_component" as "tuya", tuya is a forbidden word from 0.88 version or so. So if you declare a switch.tuya, the embedded (cloud based) Tuya component will be load instead custom_component one.
+   
    NOTE2: tuya-sw01, TUYA-SW01, is the name (friendly name), so you can name it as you want, regarding to change this word every where it appears.
 
 # Thanks to:
