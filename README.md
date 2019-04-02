@@ -63,6 +63,12 @@ Local handling for Tuya Devices under Home-Assistant and Hassio, getting paramet
    
    NOTE2: tuya-sw01, TUYA-SW01, is the name (friendly name), so you can name it as you want, regarding to change this word every where it appears. Really you can name the sensors not using the name of the original switch. But the recomendation is to do it, so you can know what sensor it is (to be more traceable).
 
+# To-do list:
+
+   Create a (good and precise) sensor (counter) for Energy (kWh) -not just Power, but based on it-.
+   
+   RGB integration (for devices integrating both plug switch, power meter, and led light) 
+
 # Thanks to:
 sean6541, for the working (standard) Python Handler for Tuya devices.
 
