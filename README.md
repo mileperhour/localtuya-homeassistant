@@ -20,6 +20,8 @@ Local handling for Tuya Devices under Home-Assistant and Hassio, getting paramet
                 pass
             return attrs
 ```
+   NOTE: Original data from the device for Voltage and Watt, includes the first decimal. So if the value is 2203, the correct value is 220,3V. By this reason, this values are divided by 10 ('/10' in the script). While Current is sent in mA (int number, no decimals), so it don't need any conversion factor to be added on the declaration.
+
    4. Use this declaration on your configuration.yaml file (you need to get the 'device_id' and 'local_key' parameters for your device, as it can be obtained on other tutorials on the web:
 ```
        switch:
