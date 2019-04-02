@@ -2,7 +2,7 @@
 
 Local handling for Tuya Devices under Home-Assistant and Hassio, getting parameters from them (as Power Meters: Voltage, Current, Watt)
 
-#How it works:
+# How it works:
 
    1. Copy switch.py to /custom_components/mytuya/ folder, inside /config folder (via Samba for HASSIO).
    2. Identify on your Home-Assistant logs (putting your logging into debug mode), the different attributes you want to handle by HA.
@@ -58,7 +58,7 @@ Local handling for Tuya Devices under Home-Assistant and Hassio, getting paramet
    
    NOTE: You can do as changes as you want in scripts ant/or yaml files. But: You can't declare your "custom_component" as "tuya", tuya is a forbidden word from 0.88 version or so. So if you declare a switch.tuya, the embedded (cloud based) Tuya component will be load instead custom_component one.
 
-#Thanks to:
+# Thanks to:
    sean6541, for the working (standard) Python Handler for Tuya devices
    some-other-user, i really can't find now, (i will credit/thank him here), who published a partialy Python script that inspired this solution
    
