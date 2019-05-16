@@ -1,0 +1,1 @@
+"""The Tuya local integration."""
