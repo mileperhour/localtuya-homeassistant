@@ -4,7 +4,7 @@ HASSIO TEAM is BREAKING this every update.
 
 They're really doing a great work for doing impossible to me continue fixing this work for every update. Now, the HASSIO TEAM has taken the choice of erase the 'pytuya' module from their distribution.
 
-Now, I have to learn hoy to do hard mods on HASSIO, how to reprogram HASSIO and how to do a HASSIO that works from zero.
+Now, I have to learn how to do hard mods on HASSIO, how to reprogram HASSIO and how to do a HASSIO that works from zero.
 
 I really don't discard this possibility, as HASSIO is all but a safe way to contribute, the best choice is to do something better and not thrust in this TEAM.
 
