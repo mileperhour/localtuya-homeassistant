@@ -76,4 +76,4 @@ sean6541, for the working (standard) Python Handler for Tuya devices.
 
 some-other-user, i really can't find now, (i will credit/thank him here), who published a partialy Python script that inspired this solution
    
-rdelcorro, for last fixes of pytuya module break from HASSIO last updates: no module named 'pytuya'
+rdelcorro, for last fixes of pytuya module break from HASSIO last updates: no module named 'pytuya' .
