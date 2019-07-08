@@ -5,7 +5,8 @@ Local handling for Tuya Devices under Home-Assistant and Hassio, getting paramet
 
 # How it works:
 
-   1. Copy switch.py and the other 2 integration/platform files to /custom_components/localtuya/ folder, inside /config folder (via Samba for HASSIO).
+   1. Copy switch.py and the other 2 integration/platform files, and pytuya handler folder, to /custom_components/localtuya/ folder, inside /config folder (via Samba for HASSIO).
+   
    2. Identify on your Home-Assistant logs (putting your logging into debug mode), the different attributes you want to handle by HA.
 
    3. Find in the switch.py file that part, and edit it for ID/DPS that is correct for your device.
@@ -75,3 +76,4 @@ sean6541, for the working (standard) Python Handler for Tuya devices.
 
 some-other-user, i really can't find now, (i will credit/thank him here), who published a partialy Python script that inspired this solution
    
+rdelcorro, for last fixes of pytuya module break from HASSIO last updates.
