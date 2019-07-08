@@ -1,3 +1,21 @@
+ATTENTION:
+
+HASSIO TEAM is BREAKING this every update.
+
+They're really doing a great work for doing impossible to me continue fixing this work for every update. Now, the HASSIO TEAM has taken the choice of erase the 'pytuya' module from their distribution.
+
+Now, I have to learn hoy to do hard mods on HASSIO, how to reprogram HASSIO and how to do a HASSIO that works from zero.
+
+I really don't discard this possibility, as HASSIO is all but a safe way to contribute, the best choice is to do something better and not thrust in this TEAM.
+
+I apoligize to all users of this custom component. When I could find a solution for this, I will post it there.
+
+While that, I will be saying to all of you that avoid using HASSIO, make another choice as domoticz or any other choice. Betting for hassio is expending lots of money, lots of work, lots of time, for nothing. Its better to begin programming from zero that trying to use HASSIO.
+
+I'm sorry about this kind of honestity. But this is my hardest experience at it.
+
+
+
 # localtuya-homeassistant
 
 Local handling for Tuya Devices under Home-Assistant and Hassio, getting parameters from them (as Power Meters: Voltage, Current, Watt)
