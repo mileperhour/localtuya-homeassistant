@@ -11,7 +11,7 @@ import homeassistant.helpers.config_validation as cv
 from time import time
 from threading import Lock
 
-REQUIREMENTS = ['pytuya==7.0.2']
+REQUIREMENTS = ['pytuya==7.0.4']
 
 CONF_DEVICE_ID = 'device_id'
 CONF_LOCAL_KEY = 'local_key'
