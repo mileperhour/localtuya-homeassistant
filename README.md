@@ -67,7 +67,8 @@ Local handling for Tuya Devices under Home-Assistant and Hassio, getting paramet
 
 # To-do list:
 
-   Create a (good and precise) sensor (counter) for Energy (kWh) -not just Power, but based on it-. Ideas: Use: https://www.home-assistant.io/components/utility_meter/
+   Create a (good and precise) sensor (counter) for Energy (kWh) -not just Power, but based on it-. 
+      Ideas: Use: https://www.home-assistant.io/components/integration/ and https://www.home-assistant.io/components/utility_meter/
    
    RGB integration (for devices integrating both plug switch, power meter, and led light) 
 
