@@ -72,6 +72,9 @@ Local handling for Tuya Devices under Home-Assistant and Hassio, getting paramet
    RGB integration (for devices integrating both plug switch, power meter, and led light) 
 
 # Thanks to:
+
+NameLessJedi, for the work tweaking my code to allow using same integration files/folder for different DPS assignment switches. Visit the https://github.com/NameLessJedi/localtuya-homeassistant repository if you can't find a updated (pytuya version) of my code or do need the tweak.
+
 sean6541, for the working (standard) Python Handler for Tuya devices.
 
 some-other-user, i really can't find now, (i will credit/thank him here), who published a partialy Python script that inspired this solution
