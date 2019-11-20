@@ -51,7 +51,7 @@ Local handling for Tuya Devices under Home-Assistant and Hassio, getting paramet
                  {{ states.switch.tuya-sw01.attributes.voltage }}
                unit_of_measurement: 'V' 
              tuya-sw01_current:
-               acs_voltage: >-     
+               value_template: >-     
                  {{ states.switch.tuya-sw01.attributes.current }}
                unit_of_measurement: 'mA'      
              tuya-sw01_current_consumption:
