@@ -41,7 +41,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
 
 def setup_platform(hass, config, add_devices, discovery_info=None):
     """Set up of the Tuya switch."""
-    import pytuya
+    from . import pytuya
 
     devices = config.get(CONF_SWITCHES)
     switches = []
