@@ -1,83 +1,18 @@
-"""The LocalTuya integration integration.
-
-Sample YAML config with all supported entity types (default values
-are pre-filled for optional fields):
-
-localtuya:
-  - host: 192.168.1.x
-    device_id: xxxxx
-    local_key: xxxxx
-    friendly_name: Tuya Device
-    protocol_version: "3.3"
-    entities:
-      - platform: binary_sensor
-        friendly_name: Plug Status
-        id: 1
-        device_class: power
-        state_on: "true" # Optional
-        state_off: "false" # Optional
-
-      - platform: cover
-        friendly_name: Device Cover
-        id: 2
-        commands_set: # Optional, default: "on_off_stop"
-            ["on_off_stop","open_close_stop","fz_zz_stop","1_2_3"]
-        positioning_mode: ["none","position","timed"] # Optional, default: "none"
-        currpos_dp: 3 # Optional, required only for "position" mode
-        setpos_dp: 4  # Optional, required only for "position" mode
-        position_inverted: [True,False] # Optional, default: False
-        span_time: 25 # Full movement time: Optional, required only for "timed" mode
-
-      - platform: fan
-        friendly_name: Device Fan
-        id: 3
-
-      - platform: light
-        friendly_name: Device Light
-        id: 4
-        brightness: 20
-        brightness_lower: 29 # Optional
-        brightness_upper: 1000 # Optional
-        color_temp: 21
-
-      - platform: sensor
-        friendly_name: Plug Voltage
-        id: 20
-        scaling: 0.1 # Optional
-        device_class: voltage # Optional
-        unit_of_measurement: "V" # Optional
-
-      - platform: switch
-        friendly_name: Plug
-        id: 1
-        current: 18 # Optional
-        current_consumption: 19 # Optional
-        voltage: 20 # Optional
-
-      - platform: vacuum
-        friendly_name: Vacuum
-        id: 28
-        idle_status_value: "standby,sleep"
-        returning_status_value: "docking"
-        docked_status_value: "charging,chargecompleted"
-        battery_dp: 14
-        mode_dp: 27
-        modes: "smart,standby,chargego,wall_follow,spiral,single"
-        fan_speed_dp: 30
-        fan_speeds: "low,normal,high"
-        clean_time_dp: 33
-        clean_area_dp: 32
-"""
+"""The LocalTuya integration. """
 import asyncio
 import logging
+import time
 from datetime import timedelta
 
 import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers.device_registry import DeviceEntry
 import homeassistant.helpers.entity_registry as er
 import voluptuous as vol
-from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
+
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_DEVICE_ID,
+    CONF_DEVICES,
     CONF_ENTITIES,
     CONF_HOST,
     CONF_ID,
@@ -85,14 +20,22 @@ from homeassistant.const import (
     EVENT_HOMEASSISTANT_STOP,
     SERVICE_RELOAD,
 )
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.reload import async_integration_yaml_config
 
+from .cloud_api import TuyaCloudApi
 from .common import TuyaDevice, async_config_entry_by_device_id
 from .config_flow import config_schema
-from .const import CONF_PRODUCT_KEY, DATA_DISCOVERY, DOMAIN, TUYA_DEVICE
+from .const import (
+    ATTR_UPDATED_AT,
+    CONF_PRODUCT_KEY,
+    DATA_CLOUD,
+    DATA_DISCOVERY,
+    DOMAIN,
+    TUYA_DEVICE
+)
 from .discovery import TuyaDiscovery
 
 _LOGGER = logging.getLogger(__name__)
@@ -116,16 +59,6 @@ SERVICE_SET_DP_SCHEMA = vol.Schema(
 )
 
 
-@callback
-def _async_update_config_entry_if_from_yaml(hass, entries_by_id, conf):
-    """Update a config entry with the latest yaml."""
-    device_id = conf[CONF_DEVICE_ID]
-
-    if device_id in entries_by_id and entries_by_id[device_id].source == SOURCE_IMPORT:
-        entry = entries_by_id[device_id]
-        hass.config_entries.async_update_entry(entry, data=conf.copy())
-
-
 async def async_setup(hass: HomeAssistant, config: dict):
     """Set up the LocalTuya integration component."""
     hass.data.setdefault(DOMAIN, {})
@@ -140,10 +73,7 @@ async def async_setup(hass: HomeAssistant, config: dict):
             return
 
         current_entries = hass.config_entries.async_entries(DOMAIN)
-        entries_by_id = {entry.data[CONF_DEVICE_ID]: entry for entry in current_entries}
-
-        for conf in config[DOMAIN]:
-            _async_update_config_entry_if_from_yaml(hass, entries_by_id, conf)
+        # entries_by_id = {entry.data[CONF_DEVICE_ID]: entry for entry in current_entries}
 
         reload_tasks = [
             hass.config_entries.async_reload(entry.entry_id)
@@ -211,6 +141,18 @@ async def async_setup(hass: HomeAssistant, config: dict):
             device = hass.data[DOMAIN][entry.entry_id][TUYA_DEVICE]
             device.async_connect()
 
+    client_id = 'xx'
+    secret = 'xx'
+    uid = 'xx'
+    tuya_api = TuyaCloudApi(hass, "eu", client_id, secret, uid)
+    res = await tuya_api.async_get_access_token()
+    _LOGGER.debug("ACCESS TOKEN RES: %s", res)
+    res = await tuya_api.async_get_devices_list()
+    for dev_id, dev in tuya_api._device_list.items():
+        print(f"Name: {dev['name']} \t dev_id {dev['id']} \t key {dev['local_key']} ")
+    hass.data[DOMAIN][DATA_CLOUD] = tuya_api
+
+    _LOGGER.debug("\n\nSTARTING DISCOVERY")
     discovery = TuyaDiscovery(_device_discovered)
 
     def _shutdown(event):
@@ -246,13 +188,13 @@ async def async_setup(hass: HomeAssistant, config: dict):
         DOMAIN, SERVICE_SET_DP, _handle_set_dp, schema=SERVICE_SET_DP_SCHEMA
     )
 
-    for host_config in config.get(DOMAIN, []):
-        hass.async_create_task(
-            hass.config_entries.flow.async_init(
-                DOMAIN, context={"source": SOURCE_IMPORT}, data=host_config
-            )
-        )
+    return True
 
+
+async def async_migrate_entry(domain):
+    """Migrate old entry."""
+    print("WHYYYYYYY")
+    _LOGGER.error("WHHHYYYYYY")
     return True
 
 
@@ -260,15 +202,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Set up LocalTuya integration from a config entry."""
     unsub_listener = entry.add_update_listener(update_listener)
 
-    device = TuyaDevice(hass, entry.data)
+    # device = TuyaDevice(hass, entry.data)
+    #
+    # hass.data[DOMAIN][entry.entry_id] = {
+    #     UNSUB_LISTENER: unsub_listener,
+    #     TUYA_DEVICE: device,
+    # }
+    #
+    async def setup_entities(dev_id):
+        dev_entry = entry.data[CONF_DEVICES][dev_id]
+        device = TuyaDevice(hass, dev_entry)
+        hass.data[DOMAIN][dev_id] = {
+            UNSUB_LISTENER: unsub_listener,
+            TUYA_DEVICE: device,
+        }
 
-    hass.data[DOMAIN][entry.entry_id] = {
-        UNSUB_LISTENER: unsub_listener,
-        TUYA_DEVICE: device,
-    }
-
-    async def setup_entities():
-        platforms = set(entity[CONF_PLATFORM] for entity in entry.data[CONF_ENTITIES])
+        platforms = set(entity[CONF_PLATFORM] for entity in dev_entry[CONF_ENTITIES])
+        print("DEV {} platforms: {}".format(dev_id, platforms))
         await asyncio.gather(
             *[
                 hass.config_entries.async_forward_entry_setup(entry, platform)
@@ -277,9 +227,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         )
         device.async_connect()
 
-    await async_remove_orphan_entities(hass, entry)
+        await async_remove_orphan_entities(hass, entry)
 
-    hass.async_create_task(setup_entities())
+    for dev_id in entry.data[CONF_DEVICES]:
+        hass.async_create_task(setup_entities(dev_id))
 
     return True
 
@@ -310,13 +261,60 @@ async def update_listener(hass, config_entry):
     await hass.config_entries.async_reload(config_entry.entry_id)
 
 
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, config_entry: ConfigEntry, device_entry: DeviceEntry
+) -> bool:
+    """Remove a config entry from a device."""
+    print("REMOVING {} FROM {}".format(device_entry.identifiers, config_entry.data))
+    dev_id = list(device_entry.identifiers)[0][1].split("_")[-1]
+    _LOGGER.debug("Removing %s", dev_id)
+
+    if dev_id not in config_entry.data[CONF_DEVICES]:
+        _LOGGER.debug(
+            "Device ID %s not found in config entry: finalizing device removal",
+            dev_id
+        )
+        return True
+
+    _LOGGER.debug("Closing device connection for %s", dev_id)
+    await hass.data[DOMAIN][dev_id][TUYA_DEVICE].close()
+
+    new_data = config_entry.data.copy()
+    new_data[CONF_DEVICES].pop(dev_id)
+    new_data[ATTR_UPDATED_AT] = str(int(time.time() * 1000))
+
+    hass.config_entries.async_update_entry(
+        config_entry,
+        data=new_data,
+    )
+    _LOGGER.debug("Config entry updated")
+
+    ent_reg = await er.async_get_registry(hass)
+    entities = {
+        ent.unique_id: ent.entity_id
+        for ent in er.async_entries_for_config_entry(ent_reg, config_entry.entry_id)
+        if dev_id in ent.unique_id
+    }
+    for entity_id in entities.values():
+        ent_reg.async_remove(entity_id)
+        print("REMOVED {}".format(entity_id))
+    _LOGGER.debug("Removed %s entities: finalizing device removal", len(entities))
+
+    return True
+
+
 async def async_remove_orphan_entities(hass, entry):
     """Remove entities associated with config entry that has been removed."""
     ent_reg = await er.async_get_registry(hass)
     entities = {
-        int(ent.unique_id.split("_")[-1]): ent.entity_id
+        ent.unique_id: ent.entity_id
         for ent in er.async_entries_for_config_entry(ent_reg, entry.entry_id)
     }
+    print("ENTITIES ORPHAN {}".format(entities))
+    return
+    res = ent_reg.async_remove('switch.aa')
+    print("RESULT ORPHAN {}".format(res))
+    # del entities[101]
 
     for entity in entry.data[CONF_ENTITIES]:
         if entity[CONF_ID] in entities:

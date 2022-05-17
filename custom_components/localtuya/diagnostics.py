@@ -6,7 +6,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntry
 
-from .const import DOMAIN
+from .const import DOMAIN, DATA_CLOUD
 
 
 async def async_get_config_entry_diagnostics(
@@ -16,6 +16,8 @@ async def async_get_config_entry_diagnostics(
     data = {}
     data = {**entry.data}
     # print("DATA is {}".format(data))
+    tuya_api = hass.data[DOMAIN][DATA_CLOUD]
+    data["cloud_devices"] = tuya_api._device_list
 
     # censoring private information
     # data["token"] = re.sub(r"[^\-]", "*", data["token"])
