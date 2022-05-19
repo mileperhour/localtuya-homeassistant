@@ -23,7 +23,8 @@
                     "region": "API server region",
                     "client_id": "Client ID",
                     "client_secret": "Secret",
-                    "user_id": "User ID"
+                    "user_id": "User ID",
+                    "user_name": "Username"
                 }
             }
         }
@@ -62,19 +63,27 @@
                 "title": "Add a new device",
                 "description": "Pick one of the automatically discovered devices or `...` to manually to add a device.",
                 "data": {
-                    "discovered_device": "Discovered Devices"
+                    "selected_device": "Discovered Devices"
                 }
             },
-            "basic_info": {
-                "title": "Add Tuya device",
-                "description": "Fill in the basic device details. The name entered here will be used to identify the device itself (as seen in the `Integrations` page). You will add entities and give them names in the following steps.",
+            "edit_device": {
+                "title": "Edit a new device",
+                "description": "Pick the configured device you wish to edit.",
+                "data": {
+                    "selected_device": "Configured Devices"
+                }
+            },
+            "configure_device": {
+                "title": "Configure Tuya device",
+                "description": "Fill in the device details{for_device}.",
                 "data": {
                     "friendly_name": "Name",
                     "host": "Host",
                     "device_id": "Device ID",
                     "local_key": "Local key",
                     "protocol_version": "Protocol Version",
-                    "scan_interval": "Scan interval (seconds, only when not updating automatically)"
+                    "scan_interval": "Scan interval (seconds, only when not updating automatically)",
+                    "entities": "Entities (uncheck an entity to remove it)"
                 }
             },
             "pick_entity_type": {
@@ -85,9 +94,9 @@
                     "no_additional_entities": "Do not add any more entities"
                 }
             },
-            "add_entity": {
-                "title": "Add new entity",
-                "description": "Please fill out the details for an entity with type `{platform}`. All settings except for `ID` can be changed from the Options page later.",
+            "configure_entity": {
+                "title": "Configure entity",
+                "description": "Please fill out the details for {entity} with type `{platform}`. All settings except for `ID` can be changed from the Options page later.",
                 "data": {
                     "id": "ID",
                     "friendly_name": "Friendly name",

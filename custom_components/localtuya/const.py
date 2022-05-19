@@ -19,7 +19,7 @@ PLATFORMS = [
     "vacuum",
 ]
 
-TUYA_DEVICE = "tuya_device"
+TUYA_DEVICES = "tuya_devices"
 
 ATTR_CURRENT = "current"
 ATTR_CURRENT_CONSUMPTION = "current_consumption"

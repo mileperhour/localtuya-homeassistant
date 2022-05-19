@@ -127,7 +127,7 @@ class TuyaCloudApi:
             )
             return f"Error {r_json['code']}: {r_json['msg']}"
 
-        self._device_list = {dev['id']: dev for dev in r_json["result"]}
+        self._device_list = {dev["id"]: dev for dev in r_json["result"]}
         # print("DEV__LIST: {}".format(self._device_list))
 
         return "ok"

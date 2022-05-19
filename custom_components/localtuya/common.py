@@ -28,7 +28,7 @@ from .const import (
     CONF_PROTOCOL_VERSION,
     DOMAIN,
     DATA_CLOUD,
-    TUYA_DEVICE,
+    TUYA_DEVICES,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -57,11 +57,6 @@ async def async_setup_entry(
     This is a generic method and each platform should lock domain and
     entity_class with functools.partial.
     """
-    print("ASYNC_SETUP_ENTRY: {} {} {}".format(
-        config_entry.data,
-        entity_class,
-        flow_schema(None).items())
-    )
     entities = []
 
     for dev_id in config_entry.data[CONF_DEVICES]:
@@ -77,7 +72,7 @@ async def async_setup_entry(
 
         if len(entities_to_setup) > 0:
 
-            tuyainterface = hass.data[DOMAIN][dev_id][TUYA_DEVICE]
+            tuyainterface = hass.data[DOMAIN][TUYA_DEVICES][dev_id]
 
             dps_config_fields = list(get_dps_for_platform(flow_schema))
 
@@ -94,8 +89,6 @@ async def async_setup_entry(
                         entity_config[CONF_ID],
                     )
                 )
-    print("ADDING {} entities".format(len(entities)))
-
     async_add_entities(entities)
 
 
@@ -209,11 +202,10 @@ class TuyaDevice(pytuya.TuyaListener, pytuya.ContextualLogger):
                     "New local key for %s: from %s to %s",
                     dev_id,
                     old_key,
-                    self._local_key
+                    self._local_key,
                 )
             self.exception(
-                f"Connect to {self._config_entry[CONF_HOST]} failed: %s",
-                type(e)
+                f"Connect to {self._config_entry[CONF_HOST]} failed: %s", type(e)
             )
             if self._interface is not None:
                 await self._interface.close()
@@ -243,8 +235,7 @@ class TuyaDevice(pytuya.TuyaListener, pytuya.ContextualLogger):
         if self._disconnect_task is not None:
             self._disconnect_task()
         self.debug(
-            "Closed connection with device %s.",
-            self._config_entry[CONF_FRIENDLY_NAME]
+            "Closed connection with device %s.", self._config_entry[CONF_FRIENDLY_NAME]
         )
 
     async def set_dp(self, state, dp_index):
