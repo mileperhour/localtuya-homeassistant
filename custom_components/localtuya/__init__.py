@@ -27,7 +27,6 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.event import async_track_time_interval
-from homeassistant.helpers.reload import async_integration_yaml_config
 
 from .cloud_api import TuyaCloudApi
 from .common import TuyaDevice, async_config_entry_by_device_id
@@ -73,13 +72,9 @@ async def async_setup(hass: HomeAssistant, config: dict):
 
     async def _handle_reload(service):
         """Handle reload service call."""
-        config = await async_integration_yaml_config(hass, DOMAIN)
-
-        if not config or DOMAIN not in config:
-            return
+        _LOGGER.debug("Service %s.reload called: reloading integration", DOMAIN)
 
         current_entries = hass.config_entries.async_entries(DOMAIN)
-        # entries_by_id = {entry.data[CONF_DEVICE_ID]: entry for entry in current_entries}
 
         reload_tasks = [
             hass.config_entries.async_reload(entry.entry_id)
@@ -107,42 +102,51 @@ async def async_setup(hass: HomeAssistant, config: dict):
         product_key = device["productKey"]
 
         # If device is not in cache, check if a config entry exists
-        if device_id not in device_cache:
-            entry = async_config_entry_by_device_id(hass, device_id)
-            if entry:
-                # Save address from config entry in cache to trigger
-                # potential update below
-                device_cache[device_id] = entry.data[CONF_HOST]
-
-        if device_id not in device_cache:
-            return
-
         entry = async_config_entry_by_device_id(hass, device_id)
         if entry is None:
             return
 
-        updates = {}
+        if device_id not in device_cache:
+            if entry and device_id in entry.data[CONF_DEVICES]:
+                # Save address from config entry in cache to trigger
+                # potential update below
+                host_ip = entry.data[CONF_DEVICES][device_id][CONF_HOST]
+                device_cache[device_id] = host_ip
+
+        if device_id not in device_cache:
+            return
+
+        dev_entry = entry.data[CONF_DEVICES][device_id]
+
+        new_data = entry.data.copy()
+        updated = False
 
         if device_cache[device_id] != device_ip:
-            updates[CONF_HOST] = device_ip
+            updated = True
+            new_data[CONF_DEVICES][device_id][CONF_HOST] = device_ip
             device_cache[device_id] = device_ip
 
-        if entry.data.get(CONF_PRODUCT_KEY) != product_key:
-            updates[CONF_PRODUCT_KEY] = product_key
+        if dev_entry.get(CONF_PRODUCT_KEY) != product_key:
+            updated = True
+            new_data[CONF_DEVICES][device_id][CONF_PRODUCT_KEY] = product_key
 
         # Update settings if something changed, otherwise try to connect. Updating
         # settings triggers a reload of the config entry, which tears down the device
         # so no need to connect in that case.
-        if updates:
-            _LOGGER.debug("Update keys for device %s: %s", device_id, updates)
+        if updated:
+            new_data[ATTR_UPDATED_AT] = str(int(time.time() * 1000))
             hass.config_entries.async_update_entry(
-                entry, data={**entry.data, **updates}
+                entry, data=new_data
             )
-        elif entry.entry_id in hass.data[DOMAIN]:
-            _LOGGER.debug("Device %s found with IP %s", device_id, device_ip)
+            device = hass.data[DOMAIN][TUYA_DEVICES][device_id]
+            if not device.connected:
+                device.async_connect()
+        elif device_id in hass.data[DOMAIN][TUYA_DEVICES]:
+            # _LOGGER.debug("Device %s found with IP %s", device_id, device_ip)
 
             device = hass.data[DOMAIN][TUYA_DEVICES][device_id]
-            device.async_connect()
+            if not device.connected:
+                device.async_connect()
 
     discovery = TuyaDiscovery(_device_discovered)
 
@@ -159,18 +163,11 @@ async def async_setup(hass: HomeAssistant, config: dict):
 
     async def _async_reconnect(now):
         """Try connecting to devices not already connected to."""
-        for device in hass.data[DOMAIN][TUYA_DEVICES]:
+        for device_id, device in hass.data[DOMAIN][TUYA_DEVICES].items():
             if not device.connected:
                 device.async_connect()
-        # for entry_id, value in hass.data[DOMAIN].items():
-        #     if entry_id == DATA_DISCOVERY:
-        #         continue
-        #
-        #     device = value[TUYA_DEVICE]
-        #     if not device.connected:
-        #         device.async_connect()
 
-    async_track_time_interval(hass, _async_reconnect, RECONNECT_INTERVAL)
+    # async_track_time_interval(hass, _async_reconnect, RECONNECT_INTERVAL)
 
     hass.helpers.service.async_register_admin_service(
         DOMAIN,
@@ -205,6 +202,7 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
             new_data[CONF_DEVICES] = {
                 config_entry.data[CONF_DEVICE_ID]: config_entry.data.copy()
             }
+            new_data[ATTR_UPDATED_AT] = str(int(time.time() * 1000))
             config_entry.version = new_version
             hass.config_entries.async_update_entry(
                 config_entry, title=DOMAIN, data=new_data
@@ -217,6 +215,7 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
             new_data[CONF_DEVICES].update(
                 {config_entry.data[CONF_DEVICE_ID]: config_entry.data.copy()}
             )
+            new_data[ATTR_UPDATED_AT] = str(int(time.time() * 1000))
             hass.config_entries.async_update_entry(stored_entries[0], data=new_data)
             await hass.config_entries.async_remove(config_entry.entry_id)
 
@@ -241,11 +240,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     user_id = entry.data[CONF_USER_ID]
     tuya_api = TuyaCloudApi(hass, region, client_id, secret, user_id)
     res = await tuya_api.async_get_access_token()
-    _LOGGER.debug("ACCESS TOKEN RES: %s . CLOUD DEVICES:", res)
+    if res != "ok":
+        _LOGGER.error("Cloud API connection failed: %s", res)
+    _LOGGER.info("Cloud API connection succeeded.")
     res = await tuya_api.async_get_devices_list()
     for dev_id, dev in tuya_api._device_list.items():
         _LOGGER.debug(
-            "Name: %s \t dev_id %s \t key %s", dev["name"], dev["id"], dev["local_key"]
+            "Cloud device: %s \t dev_id %s \t key %s", dev["name"], dev["id"], dev["local_key"]
         )
     hass.data[DOMAIN][DATA_CLOUD] = tuya_api
 
@@ -258,7 +259,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     #
     async def setup_entities(dev_id):
         dev_entry = entry.data[CONF_DEVICES][dev_id]
-        device = TuyaDevice(hass, dev_entry)
+        device = TuyaDevice(hass, entry, dev_id)
         hass.data[DOMAIN][TUYA_DEVICES][dev_id] = device
 
         platforms = set(entity[CONF_PLATFORM] for entity in dev_entry[CONF_ENTITIES])

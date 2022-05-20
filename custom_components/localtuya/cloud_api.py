@@ -67,7 +67,7 @@ class TuyaCloudApi:
             "sign_method": "HMAC-SHA256",
         }
         full_url = self._base_url + url
-        print("\n" + method + ": [{}]".format(full_url))
+        # print("\n" + method + ": [{}]".format(full_url))
 
         if method == "GET":
             func = functools.partial(
@@ -80,7 +80,7 @@ class TuyaCloudApi:
                 headers=dict(default_par, **headers),
                 data=json.dumps(body),
             )
-            print("BODY: [{}]".format(body))
+            # print("BODY: [{}]".format(body))
         elif method == "PUT":
             func = functools.partial(
                 requests.put,
@@ -104,9 +104,7 @@ class TuyaCloudApi:
         if not r_json["success"]:
             return f"Error {r_json['code']}: {r_json['msg']}"
 
-        print(r.json())
         self._access_token = r.json()["result"]["access_token"]
-        print("GET_ACCESS_TOKEN: {}".format(self._access_token))
         return "ok"
 
     async def async_get_devices_list(self):
@@ -120,11 +118,11 @@ class TuyaCloudApi:
 
         r_json = r.json()
         if not r_json["success"]:
-            print(
-                "Request failed, reply is {}".format(
-                    json.dumps(r_json, indent=2, ensure_ascii=False)
-                )
-            )
+            # print(
+            #     "Request failed, reply is {}".format(
+            #         json.dumps(r_json, indent=2, ensure_ascii=False)
+            #     )
+            # )
             return f"Error {r_json['code']}: {r_json['msg']}"
 
         self._device_list = {dev["id"]: dev for dev in r_json["result"]}

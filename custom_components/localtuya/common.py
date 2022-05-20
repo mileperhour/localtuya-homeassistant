@@ -2,6 +2,7 @@
 import asyncio
 import logging
 from datetime import timedelta
+import time
 
 from homeassistant.const import (
     CONF_DEVICE_ID,
@@ -24,6 +25,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import pytuya
 from .const import (
+    ATTR_UPDATED_AT,
     CONF_LOCAL_KEY,
     CONF_PROTOCOL_VERSION,
     DOMAIN,
@@ -112,7 +114,7 @@ def async_config_entry_by_device_id(hass, device_id):
     """Look up config entry by device id."""
     current_entries = hass.config_entries.async_entries(DOMAIN)
     for entry in current_entries:
-        if entry.data[CONF_DEVICE_ID] == device_id:
+        if device_id in entry.data[CONF_DEVICES]:
             return entry
     return None
 
@@ -120,11 +122,12 @@ def async_config_entry_by_device_id(hass, device_id):
 class TuyaDevice(pytuya.TuyaListener, pytuya.ContextualLogger):
     """Cache wrapper for pytuya.TuyaInterface."""
 
-    def __init__(self, hass, config_entry):
+    def __init__(self, hass, config_entry, dev_id):
         """Initialize the cache."""
         super().__init__()
         self._hass = hass
         self._config_entry = config_entry
+        self._dev_config_entry = config_entry.data[CONF_DEVICES][dev_id]
         self._interface = None
         self._status = {}
         self.dps_to_request = {}
@@ -132,11 +135,11 @@ class TuyaDevice(pytuya.TuyaListener, pytuya.ContextualLogger):
         self._connect_task = None
         self._disconnect_task = None
         self._unsub_interval = None
-        self._local_key = self._config_entry[CONF_LOCAL_KEY]
-        self.set_logger(_LOGGER, config_entry[CONF_DEVICE_ID])
+        self._local_key = self._dev_config_entry[CONF_LOCAL_KEY]
+        self.set_logger(_LOGGER, self._dev_config_entry[CONF_DEVICE_ID])
 
         # This has to be done in case the device type is type_0d
-        for entity in config_entry[CONF_ENTITIES]:
+        for entity in self._dev_config_entry[CONF_ENTITIES]:
             self.dps_to_request[entity[CONF_ID]] = None
 
     @property
@@ -151,14 +154,14 @@ class TuyaDevice(pytuya.TuyaListener, pytuya.ContextualLogger):
 
     async def _make_connection(self):
         """Subscribe localtuya entity events."""
-        self.debug("Connecting to %s", self._config_entry[CONF_HOST])
+        self.debug("Connecting to %s", self._dev_config_entry[CONF_HOST])
 
         try:
             self._interface = await pytuya.connect(
-                self._config_entry[CONF_HOST],
-                self._config_entry[CONF_DEVICE_ID],
+                self._dev_config_entry[CONF_HOST],
+                self._dev_config_entry[CONF_DEVICE_ID],
                 self._local_key,
-                float(self._config_entry[CONF_PROTOCOL_VERSION]),
+                float(self._dev_config_entry[CONF_PROTOCOL_VERSION]),
                 self,
             )
             self._interface.add_dps_to_request(self.dps_to_request)
@@ -174,51 +177,62 @@ class TuyaDevice(pytuya.TuyaListener, pytuya.ContextualLogger):
                 self.debug(
                     "New entity %s was added to %s",
                     entity_id,
-                    self._config_entry[CONF_HOST],
+                    self._dev_config_entry[CONF_HOST],
                 )
                 self._dispatch_status()
 
-            signal = f"localtuya_entity_{self._config_entry[CONF_DEVICE_ID]}"
+            signal = f"localtuya_entity_{self._dev_config_entry[CONF_DEVICE_ID]}"
             self._disconnect_task = async_dispatcher_connect(
                 self._hass, signal, _new_entity_handler
             )
 
             if (
-                CONF_SCAN_INTERVAL in self._config_entry
-                and self._config_entry[CONF_SCAN_INTERVAL] > 0
+                CONF_SCAN_INTERVAL in self._dev_config_entry
+                and self._dev_config_entry[CONF_SCAN_INTERVAL] > 0
             ):
                 self._unsub_interval = async_track_time_interval(
                     self._hass,
                     self._async_refresh,
-                    timedelta(seconds=self._config_entry[CONF_SCAN_INTERVAL]),
+                    timedelta(seconds=self._dev_config_entry[CONF_SCAN_INTERVAL]),
                 )
         except UnicodeDecodeError as e:  # pylint: disable=broad-except
-            dev_id = self._config_entry[CONF_DEVICE_ID]
-            cloud_devs = self._hass.data[DOMAIN][DATA_CLOUD]._device_list
-            if dev_id in cloud_devs:
-                old_key = self._local_key
-                self._local_key = cloud_devs[dev_id].get(CONF_LOCAL_KEY)
-                self.error(
-                    "New local key for %s: from %s to %s",
-                    dev_id,
-                    old_key,
-                    self._local_key,
-                )
             self.exception(
-                f"Connect to {self._config_entry[CONF_HOST]} failed: %s", type(e)
+                f"Connect to {self._dev_config_entry[CONF_HOST]} failed: %s", type(e)
             )
             if self._interface is not None:
                 await self._interface.close()
                 self._interface = None
 
         except Exception as e:  # pylint: disable=broad-except
-            self.exception(f"Connect to {self._config_entry[CONF_HOST]} failed")
-            self.error("BBBB: %s", type(e))
+            self.exception(f"Connect to {self._dev_config_entry[CONF_HOST]} failed")
+            self.error("BBBB: %s", type(type(e)))
+            if 'json.decode' in str(type(e)):
+                self.error("BBBB2")
+                await self.update_local_key()
 
             if self._interface is not None:
                 await self._interface.close()
                 self._interface = None
         self._connect_task = None
+
+    async def update_local_key(self):
+        dev_id = self._dev_config_entry[CONF_DEVICE_ID]
+        await self._hass.data[DOMAIN][DATA_CLOUD].async_get_devices_list()
+        cloud_devs = self._hass.data[DOMAIN][DATA_CLOUD]._device_list
+        if dev_id in cloud_devs:
+            old_key = self._local_key
+            self._local_key = cloud_devs[dev_id].get(CONF_LOCAL_KEY)
+            new_data = self._config_entry.data.copy()
+            new_data[CONF_DEVICES][dev_id][CONF_LOCAL_KEY] = self._local_key
+            new_data[ATTR_UPDATED_AT] = str(int(time.time() * 1000))
+            self._hass.config_entries.async_update_entry(
+                self._config_entry,
+                data=new_data,
+            )
+            self.debug(
+                "New local key for %s: from %s to %s",
+                dev_id, old_key, self._local_key
+            )
 
     async def _async_refresh(self, _now):
         if self._interface is not None:
@@ -235,7 +249,8 @@ class TuyaDevice(pytuya.TuyaListener, pytuya.ContextualLogger):
         if self._disconnect_task is not None:
             self._disconnect_task()
         self.debug(
-            "Closed connection with device %s.", self._config_entry[CONF_FRIENDLY_NAME]
+            "Closed connection with device %s.",
+            self._dev_config_entry[CONF_FRIENDLY_NAME]
         )
 
     async def set_dp(self, state, dp_index):
@@ -247,7 +262,7 @@ class TuyaDevice(pytuya.TuyaListener, pytuya.ContextualLogger):
                 self.exception("Failed to set DP %d to %d", dp_index, state)
         else:
             self.error(
-                "Not connected to device %s", self._config_entry[CONF_FRIENDLY_NAME]
+                "Not connected to device %s", self._dev_config_entry[CONF_FRIENDLY_NAME]
             )
 
     async def set_dps(self, states):
@@ -259,7 +274,7 @@ class TuyaDevice(pytuya.TuyaListener, pytuya.ContextualLogger):
                 self.exception("Failed to set DPs %r", states)
         else:
             self.error(
-                "Not connected to device %s", self._config_entry[CONF_FRIENDLY_NAME]
+                "Not connected to device %s", self._dev_config_entry[CONF_FRIENDLY_NAME]
             )
 
     @callback
@@ -269,13 +284,13 @@ class TuyaDevice(pytuya.TuyaListener, pytuya.ContextualLogger):
         self._dispatch_status()
 
     def _dispatch_status(self):
-        signal = f"localtuya_{self._config_entry[CONF_DEVICE_ID]}"
+        signal = f"localtuya_{self._dev_config_entry[CONF_DEVICE_ID]}"
         async_dispatcher_send(self._hass, signal, self._status)
 
     @callback
     def disconnected(self):
         """Device disconnected."""
-        signal = f"localtuya_{self._config_entry[CONF_DEVICE_ID]}"
+        signal = f"localtuya_{self._dev_config_entry[CONF_DEVICE_ID]}"
         async_dispatcher_send(self._hass, signal, None)
         if self._unsub_interval is not None:
             self._unsub_interval()
@@ -291,11 +306,11 @@ class LocalTuyaEntity(RestoreEntity, pytuya.ContextualLogger):
         """Initialize the Tuya entity."""
         super().__init__()
         self._device = device
-        self._config_entry = config_entry
+        self._dev_config_entry = config_entry
         self._config = get_entity_config(config_entry, dp_id)
         self._dp_id = dp_id
         self._status = {}
-        self.set_logger(logger, self._config_entry[CONF_DEVICE_ID])
+        self.set_logger(logger, self._dev_config_entry[CONF_DEVICE_ID])
 
     async def async_added_to_hass(self):
         """Subscribe localtuya events."""
@@ -317,28 +332,28 @@ class LocalTuyaEntity(RestoreEntity, pytuya.ContextualLogger):
                     self.status_updated()
                 self.schedule_update_ha_state()
 
-        signal = f"localtuya_{self._config_entry[CONF_DEVICE_ID]}"
+        signal = f"localtuya_{self._dev_config_entry[CONF_DEVICE_ID]}"
 
         self.async_on_remove(
             async_dispatcher_connect(self.hass, signal, _update_handler)
         )
 
-        signal = f"localtuya_entity_{self._config_entry[CONF_DEVICE_ID]}"
+        signal = f"localtuya_entity_{self._dev_config_entry[CONF_DEVICE_ID]}"
         async_dispatcher_send(self.hass, signal, self.entity_id)
 
     @property
     def device_info(self):
         """Return device information for the device registry."""
-        model = self._config_entry.get(CONF_MODEL, "Tuya generic")
+        model = self._dev_config_entry.get(CONF_MODEL, "Tuya generic")
         return {
             "identifiers": {
                 # Serial numbers are unique identifiers within a specific domain
-                (DOMAIN, f"local_{self._config_entry[CONF_DEVICE_ID]}")
+                (DOMAIN, f"local_{self._dev_config_entry[CONF_DEVICE_ID]}")
             },
-            "name": self._config_entry[CONF_FRIENDLY_NAME],
+            "name": self._dev_config_entry[CONF_FRIENDLY_NAME],
             "manufacturer": "Tuya",
-            "model": f"{model} ({self._config_entry[CONF_DEVICE_ID]})",
-            "sw_version": self._config_entry[CONF_PROTOCOL_VERSION],
+            "model": f"{model} ({self._dev_config_entry[CONF_DEVICE_ID]})",
+            "sw_version": self._dev_config_entry[CONF_PROTOCOL_VERSION],
         }
 
     @property
@@ -354,7 +369,7 @@ class LocalTuyaEntity(RestoreEntity, pytuya.ContextualLogger):
     @property
     def unique_id(self):
         """Return unique device identifier."""
-        return f"local_{self._config_entry[CONF_DEVICE_ID]}_{self._dp_id}"
+        return f"local_{self._dev_config_entry[CONF_DEVICE_ID]}_{self._dp_id}"
 
     def has_config(self, attr):
         """Return if a config parameter has a valid value."""

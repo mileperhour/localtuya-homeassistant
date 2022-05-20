@@ -5,6 +5,7 @@ import time
 from importlib import import_module
 
 import homeassistant.helpers.config_validation as cv
+import homeassistant.helpers.entity_registry as er
 import voluptuous as vol
 from homeassistant import config_entries, core, exceptions
 from homeassistant.const import (
@@ -253,7 +254,7 @@ async def validate_input(hass: core.HomeAssistant, data):
 
 async def attempt_cloud_connection(hass, user_input):
     """Create device."""
-    tuya_api = TuyaCloudApi(
+    cloud_api = TuyaCloudApi(
         hass,
         user_input.get(CONF_REGION),
         user_input.get(CONF_CLIENT_ID),
@@ -261,20 +262,18 @@ async def attempt_cloud_connection(hass, user_input):
         user_input.get(CONF_USER_ID),
     )
 
-    res = await tuya_api.async_get_access_token()
-    _LOGGER.debug("ACCESS TOKEN RES: %s", res)
+    res = await cloud_api.async_get_access_token()
     if res != "ok":
-        return {"reason": "authentication_failed", "msg": res}
+        _LOGGER.error("Cloud API connection failed: %s", res)
+        return cloud_api, {"reason": "authentication_failed", "msg": res}
 
-    res = await tuya_api.async_get_devices_list()
-    _LOGGER.debug("DEV LIST RES: %s", res)
+    res = await cloud_api.async_get_devices_list()
     if res != "ok":
-        return {"reason": "device_list_failed", "msg": res}
+        _LOGGER.error("Cloud API get_devices_list failed: %s", res)
+        return cloud_api, {"reason": "device_list_failed", "msg": res}
+    _LOGGER.info("Cloud API connection succeeded.")
 
-    for dev_id, dev in tuya_api._device_list.items():
-        print(f"Name: {dev['name']} \t dev_id {dev['id']} \t key {dev['local_key']} ")
-
-    return {}
+    return cloud_api, {}
 
 
 class LocaltuyaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -297,8 +296,7 @@ class LocaltuyaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
         placeholders = {}
         if user_input is not None:
-            print("ECCOCI")
-            res = await attempt_cloud_connection(self.hass, user_input)
+            cloud_api, res = await attempt_cloud_connection(self.hass, user_input)
 
             if len(res) == 0:
                 return await self._create_entry(user_input)
@@ -322,9 +320,6 @@ class LocaltuyaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def _create_entry(self, user_input):
         """Register new entry."""
-        # if not self.unique_id:
-        #    await self.async_set_unique_id(password)
-        # self._abort_if_unique_id_configured()
         if self._async_current_entries():
             return self.async_abort(reason="already_configured")
 
@@ -341,11 +336,6 @@ class LocaltuyaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         _LOGGER.error(
             "Configuration via YAML file is no longer supported by this integration."
         )
-        # await self.async_set_unique_id(user_input[CONF_DEVICE_ID])
-        # self._abort_if_unique_id_configured(updates=user_input)
-        # return self.async_create_entry(
-        #     title=f"{user_input[CONF_FRIENDLY_NAME]} (YAML)", data=user_input
-        # )
 
 
 class LocalTuyaOptionsFlowHandler(config_entries.OptionsFlow):
@@ -385,19 +375,24 @@ class LocalTuyaOptionsFlowHandler(config_entries.OptionsFlow):
         errors = {}
         placeholders = {}
         if user_input is not None:
-            res = await attempt_cloud_connection(self.hass, user_input)
+            cloud_api, res = await attempt_cloud_connection(self.hass, user_input)
 
             if len(res) == 0:
                 new_data = self.config_entry.data.copy()
                 new_data.update(user_input)
-                print("CURR_ENTRY {}".format(self.config_entry))
-                print("NEW DATA {}".format(new_data))
+                cloud_devs = cloud_api._device_list
+                for dev_id, dev in new_data[CONF_DEVICES].items():
+                    if CONF_MODEL not in dev and dev_id in cloud_devs:
+                        new_data[CONF_DEVICES][dev_id][CONF_MODEL] = cloud_devs[dev_id].get(
+                            CONF_PRODUCT_NAME
+                        )
+                new_data[ATTR_UPDATED_AT] = str(int(time.time() * 1000))
 
                 self.hass.config_entries.async_update_entry(
                     self.config_entry,
                     data=new_data,
                 )
-                return self.async_create_entry(title="", data={})
+                return self.async_create_entry(title=new_data.get(CONF_USERNAME), data={})
             errors["base"] = res["reason"]
             placeholders = {"msg": res["msg"]}
 
@@ -417,7 +412,6 @@ class LocalTuyaOptionsFlowHandler(config_entries.OptionsFlow):
         self.editing_device = False
         errors = {}
         if user_input is not None:
-            print("Selected {}".format(user_input))
             if user_input[SELECTED_DEVICE] != CUSTOM_DEVICE:
                 self.selected_device = user_input[SELECTED_DEVICE]
             return await self.async_step_configure_device()
@@ -444,7 +438,6 @@ class LocalTuyaOptionsFlowHandler(config_entries.OptionsFlow):
             for dev_id, dev in self.discovered_devices.items()
             if dev["gwId"] not in self.config_entry.data[CONF_DEVICES]
         }
-        print("SCHEMA DEVS {}".format(devices))
 
         return self.async_show_form(
             step_id="add_device",
@@ -458,23 +451,18 @@ class LocalTuyaOptionsFlowHandler(config_entries.OptionsFlow):
         """Handle editing a device."""
         self.editing_device = True
         # Use cache if available or fallback to manual discovery
-        print("AAA")
         errors = {}
         if user_input is not None:
-            print("Selected {}".format(user_input))
             self.selected_device = user_input[SELECTED_DEVICE]
             dev_conf = self.config_entry.data[CONF_DEVICES][self.selected_device]
             self.dps_strings = dev_conf.get(CONF_DPS_STRINGS, gen_dps_strings())
             self.entities = dev_conf[CONF_ENTITIES]
-            print("Selected  DPS {} ENT {}".format(self.dps_strings, self.entities))
 
             return await self.async_step_configure_device()
 
-        print("BBB: {}".format(self.config_entry.data[CONF_DEVICES]))
         devices = {}
         for dev_id, configured_dev in self.config_entry.data[CONF_DEVICES].items():
             devices[dev_id] = configured_dev[CONF_HOST]
-        print("SCHEMA DEVS {}".format(devices))
 
         return self.async_show_form(
             step_id="edit_device",
@@ -489,8 +477,6 @@ class LocalTuyaOptionsFlowHandler(config_entries.OptionsFlow):
         errors = {}
         dev_id = self.selected_device
         if user_input is not None:
-            print("INPUT1!! {} {}".format(user_input, dev_id))
-
             try:
                 self.device_data = user_input.copy()
                 if dev_id is not None:
@@ -525,7 +511,6 @@ class LocalTuyaOptionsFlowHandler(config_entries.OptionsFlow):
                         return await self.async_step_configure_entity()
 
                 self.dps_strings = await validate_input(self.hass, user_input)
-                print("ZIO KEN!! {} ".format(self.dps_strings))
                 return await self.async_step_pick_entity_type()
             except CannotConnect:
                 errors["base"] = "cannot_connect"
@@ -540,15 +525,11 @@ class LocalTuyaOptionsFlowHandler(config_entries.OptionsFlow):
         defaults = {}
         if self.editing_device:
             # If selected device exists as a config entry, load config from it
-            print("ALREADY EXISTING!! {}".format(dev_id))
             defaults = self.config_entry.data[CONF_DEVICES][dev_id].copy()
-            print("ALREADY EXISTING!! {} {}".format(self.entities, defaults))
             schema = schema_defaults(options_schema(self.entities), **defaults)
             placeholders = {"for_device": f" for device `{dev_id}`"}
-            print("SCHEMA!! {}".format(schema))
         elif dev_id is not None:
             # Insert default values from discovery and cloud if present
-            print("NEW DEVICE!! {}".format(dev_id))
             device = self.discovered_devices[dev_id]
             defaults[CONF_HOST] = device.get("ip")
             defaults[CONF_DEVICE_ID] = device.get("gwId")
@@ -571,19 +552,16 @@ class LocalTuyaOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_pick_entity_type(self, user_input=None):
         """Handle asking if user wants to add another entity."""
         if user_input is not None:
-            print("INPUT4!! {} {}".format(user_input, self.device_data))
             if user_input.get(NO_ADDITIONAL_ENTITIES):
                 config = {
                     **self.device_data,
                     CONF_DPS_STRINGS: self.dps_strings,
                     CONF_ENTITIES: self.entities,
                 }
-                print("NEW CONFIG!! {}".format(config))
 
                 # entry = async_config_entry_by_device_id(self.hass, self.unique_id)
                 dev_id = self.device_data.get(CONF_DEVICE_ID)
                 if dev_id in self.config_entry.data[CONF_DEVICES]:
-                    print("AGGIORNO !! {}".format(dev_id))
                     self.hass.config_entries.async_update_entry(
                         self.config_entry, data=config
                     )
@@ -595,13 +573,9 @@ class LocalTuyaOptionsFlowHandler(config_entries.OptionsFlow):
                         },
                     )
 
-                print("CREO NUOVO DEVICE!! {}".format(dev_id))
                 new_data = self.config_entry.data.copy()
-                print("PRE:     {}".format(new_data))
                 new_data[ATTR_UPDATED_AT] = str(int(time.time() * 1000))
-                # new_data[CONF_DEVICES]["AZZ"] = "OK"
                 new_data[CONF_DEVICES].update({dev_id: config})
-                print("POST:    {}".format(new_data))
 
                 self.hass.config_entries.async_update_entry(
                     self.config_entry,
@@ -625,12 +599,9 @@ class LocalTuyaOptionsFlowHandler(config_entries.OptionsFlow):
 
     def available_dps_strings(self):
         available_dps = []
-        # print("FILTERING!! {} {}".format(self.dps_strings, self.entities))
         used_dps = [str(entity[CONF_ID]) for entity in self.entities]
-        # print("FILTERING-- {} {}".format(self.dps_strings, used_dps))
         for dp_string in self.dps_strings:
             dp = dp_string.split(" ")[0]
-            # print("FILTERING2!! {} {}".format(dp_string, dp))
             if dp not in used_dps:
                 available_dps.append(dp_string)
         return available_dps
@@ -639,8 +610,6 @@ class LocalTuyaOptionsFlowHandler(config_entries.OptionsFlow):
         """Manage entity settings."""
         errors = {}
         if user_input is not None:
-            print("INPUT2!! {} {}".format(user_input, CONF_DEVICE_ID))
-            print("ZIO KEN!! {} ".format(self.dps_strings))
             entity = strip_dps_values(user_input, self.dps_strings)
             entity[CONF_ID] = self.current_entity[CONF_ID]
             entity[CONF_PLATFORM] = self.current_entity[CONF_PLATFORM]
@@ -673,16 +642,38 @@ class LocalTuyaOptionsFlowHandler(config_entries.OptionsFlow):
         """Manage entity settings."""
         errors = {}
         if user_input is not None:
-            print("INPUT3!! {} {}".format(user_input, CONF_DEVICE_ID))
-            already_configured = any(
-                entity[CONF_ID] == int(user_input[CONF_ID].split(" ")[0])
-                for entity in self.entities
-            )
-            if not already_configured:
+            if self.editing_device:
+                entity = strip_dps_values(user_input, self.dps_strings)
+                entity[CONF_ID] = self.current_entity[CONF_ID]
+                entity[CONF_PLATFORM] = self.current_entity[CONF_PLATFORM]
+                self.device_data[CONF_ENTITIES].append(entity)
+
+                if len(self.entities) == len(self.device_data[CONF_ENTITIES]):
+                    # finished editing device. Let's store the new config entry....
+                    dev_id = self.device_data[CONF_DEVICE_ID]
+                    new_data = self.config_entry.data.copy()
+                    entry_id = self.config_entry.entry_id
+                    # removing entities from registry (they will be recreated)
+                    ent_reg = await er.async_get_registry(self.hass)
+                    reg_entities = {
+                        ent.unique_id: ent.entity_id
+                        for ent in er.async_entries_for_config_entry(ent_reg, entry_id)
+                        if dev_id in ent.unique_id
+                    }
+                    for entity_id in reg_entities.values():
+                        ent_reg.async_remove(entity_id)
+
+                    new_data[CONF_DEVICES][dev_id] = self.device_data
+                    new_data[ATTR_UPDATED_AT] = str(int(time.time() * 1000))
+                    self.hass.config_entries.async_update_entry(
+                        self.config_entry,
+                        data=new_data,
+                    )
+                    return self.async_create_entry(title="", data={})
+            else:
                 user_input[CONF_PLATFORM] = self.selected_platform
                 self.entities.append(strip_dps_values(user_input, self.dps_strings))
                 # new entity added. Let's check if there are more left...
-                print("ADDED. Remaining... {}".format(self.available_dps_strings()))
                 user_input = None
                 if len(self.available_dps_strings()) == 0:
                     user_input = {NO_ADDITIONAL_ENTITIES: True}
