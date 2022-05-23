@@ -3,8 +3,9 @@ import functools
 import hashlib
 import hmac
 import json
-import requests
 import time
+
+import requests
 
 
 # Signature algorithm.

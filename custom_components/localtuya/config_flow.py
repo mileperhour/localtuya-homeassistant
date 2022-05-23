@@ -9,6 +9,8 @@ import homeassistant.helpers.entity_registry as er
 import voluptuous as vol
 from homeassistant import config_entries, core, exceptions
 from homeassistant.const import (
+    CONF_CLIENT_ID,
+    CONF_CLIENT_SECRET,
     CONF_DEVICE_ID,
     CONF_DEVICES,
     CONF_ENTITIES,
@@ -18,29 +20,27 @@ from homeassistant.const import (
     CONF_MODEL,
     CONF_NAME,
     CONF_PLATFORM,
-    CONF_SCAN_INTERVAL,
-    CONF_CLIENT_ID,
-    CONF_CLIENT_SECRET,
     CONF_REGION,
+    CONF_SCAN_INTERVAL,
     CONF_USERNAME,
 )
 from homeassistant.core import callback
 
 from .cloud_api import TuyaCloudApi
-from .common import async_config_entry_by_device_id, pytuya
+from .common import pytuya
 from .const import (
+    ATTR_UPDATED_AT,
     CONF_ACTION,
     CONF_ADD_DEVICE,
+    CONF_DPS_STRINGS,
     CONF_EDIT_DEVICE,
-    CONF_SETUP_CLOUD,
     CONF_LOCAL_KEY,
     CONF_PRODUCT_NAME,
     CONF_PROTOCOL_VERSION,
+    CONF_SETUP_CLOUD,
     CONF_USER_ID,
-    CONF_DPS_STRINGS,
-    ATTR_UPDATED_AT,
-    DATA_DISCOVERY,
     DATA_CLOUD,
+    DATA_DISCOVERY,
     DOMAIN,
     PLATFORMS,
 )
@@ -304,11 +304,6 @@ class LocaltuyaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             placeholders = {"msg": res["msg"]}
 
         defaults = {}
-        defaults[CONF_REGION] = "eu"
-        defaults[CONF_CLIENT_ID] = "xxx"
-        defaults[CONF_CLIENT_SECRET] = "xxx"
-        defaults[CONF_USER_ID] = "xxx"
-        defaults[CONF_USERNAME] = "xxx"
         defaults.update(user_input or {})
 
         return self.async_show_form(
@@ -383,16 +378,17 @@ class LocalTuyaOptionsFlowHandler(config_entries.OptionsFlow):
                 cloud_devs = cloud_api._device_list
                 for dev_id, dev in new_data[CONF_DEVICES].items():
                     if CONF_MODEL not in dev and dev_id in cloud_devs:
-                        new_data[CONF_DEVICES][dev_id][CONF_MODEL] = cloud_devs[dev_id].get(
-                            CONF_PRODUCT_NAME
-                        )
+                        model = cloud_devs[dev_id].get(CONF_PRODUCT_NAME)
+                        new_data[CONF_DEVICES][dev_id][CONF_MODEL] = model
                 new_data[ATTR_UPDATED_AT] = str(int(time.time() * 1000))
 
                 self.hass.config_entries.async_update_entry(
                     self.config_entry,
                     data=new_data,
                 )
-                return self.async_create_entry(title=new_data.get(CONF_USERNAME), data={})
+                return self.async_create_entry(
+                    title=new_data.get(CONF_USERNAME), data={}
+                )
             errors["base"] = res["reason"]
             placeholders = {"msg": res["msg"]}
 
@@ -559,7 +555,6 @@ class LocalTuyaOptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_ENTITIES: self.entities,
                 }
 
-                # entry = async_config_entry_by_device_id(self.hass, self.unique_id)
                 dev_id = self.device_data.get(CONF_DEVICE_ID)
                 if dev_id in self.config_entry.data[CONF_DEVICES]:
                     self.hass.config_entries.async_update_entry(
