@@ -1,135 +1,53 @@
-"""
-Simple platform to control **SOME** Tuya switch devices.
+"""Platform to locally control Tuya-based switch devices."""
+import logging
+from functools import partial
 
-For more details about this platform, please refer to the documentation at
-https://home-assistant.io/components/switch.tuya/
-"""
 import voluptuous as vol
-from homeassistant.components.switch import SwitchDevice, PLATFORM_SCHEMA
-from homeassistant.const import (CONF_NAME, CONF_HOST, CONF_ID, CONF_SWITCHES, CONF_FRIENDLY_NAME, CONF_ICON)
-import homeassistant.helpers.config_validation as cv
-from time import time
-from threading import Lock
+from homeassistant.components.switch import DOMAIN, SwitchEntity
 
-REQUIREMENTS = ['pytuya==7.0.4']
+from .common import LocalTuyaEntity, async_setup_entry
+from .const import (
+    ATTR_CURRENT,
+    ATTR_CURRENT_CONSUMPTION,
+    ATTR_STATE,
+    ATTR_VOLTAGE,
+    CONF_CURRENT,
+    CONF_CURRENT_CONSUMPTION,
+    CONF_DEFAULT_VALUE,
+    CONF_PASSIVE_ENTITY,
+    CONF_RESTORE_ON_RECONNECT,
+    CONF_VOLTAGE,
+)
 
-CONF_DEVICE_ID = 'device_id'
-CONF_LOCAL_KEY = 'local_key'
-
-DEFAULT_ID = '1'
-
-ATTR_CURRENT = 'current'
-ATTR_CURRENT_CONSUMPTION = 'current_consumption'
-ATTR_VOLTAGE = 'voltage'
-
-SWITCH_SCHEMA = vol.Schema({
-    vol.Optional(CONF_ID, default=DEFAULT_ID): cv.string,
-    vol.Optional(CONF_FRIENDLY_NAME): cv.string,
-})
-
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
-    vol.Optional(CONF_NAME): cv.string,
-    vol.Optional(CONF_ICON): cv.icon,
-    vol.Required(CONF_HOST): cv.string,
-    vol.Required(CONF_DEVICE_ID): cv.string,
-    vol.Required(CONF_LOCAL_KEY): cv.string,
-    vol.Optional(CONF_ID, default=DEFAULT_ID): cv.string,
-    vol.Optional(CONF_SWITCHES, default={}):
-        vol.Schema({cv.slug: SWITCH_SCHEMA}),
-})
+_LOGGER = logging.getLogger(__name__)
 
 
-def setup_platform(hass, config, add_devices, discovery_info=None):
-    """Set up of the Tuya switch."""
-    import pytuya
+def flow_schema(dps):
+    """Return schema used in config flow."""
+    return {
+        vol.Optional(CONF_CURRENT): vol.In(dps),
+        vol.Optional(CONF_CURRENT_CONSUMPTION): vol.In(dps),
+        vol.Optional(CONF_VOLTAGE): vol.In(dps),
+        vol.Required(CONF_RESTORE_ON_RECONNECT): bool,
+        vol.Required(CONF_PASSIVE_ENTITY): bool,
+        vol.Optional(CONF_DEFAULT_VALUE): str,
+    }
 
-    devices = config.get(CONF_SWITCHES)
-    switches = []
 
-    outlet_device = TuyaCache(
-        pytuya.OutletDevice(
-            config.get(CONF_DEVICE_ID),
-            config.get(CONF_HOST),
-            config.get(CONF_LOCAL_KEY)
-        )
-    )
-
-    for object_id, device_config in devices.items():
-        switches.append(
-                TuyaDevice(
-                    outlet_device,
-                    device_config.get(CONF_FRIENDLY_NAME, object_id),
-                    device_config.get(CONF_ICON),
-                    device_config.get(CONF_ID)
-                )
-        )
-
-    name = config.get(CONF_NAME)
-    if name:
-        switches.append(
-                TuyaDevice(
-                    outlet_device,
-                    name,
-                    config.get(CONF_ICON),
-                    config.get(CONF_ID)
-                )
-        )
-
-    add_devices(switches)
-
-class TuyaCache:
-    """Cache wrapper for pytuya.OutletDevice"""
-
-    def __init__(self, device):
-        """Initialize the cache."""
-        self._cached_status = ''
-        self._cached_status_time = 0
-        self._device = device
-        self._lock = Lock()
-
-    def __get_status(self):
-        for i in range(3):
-            try:
-                status = self._device.status()
-                return status
-            except ConnectionError:
-                if i+1 == 3:
-                    raise ConnectionError("Failed to update status.")
-
-    def set_status(self, state, switchid):
-        """Change the Tuya switch status and clear the cache."""
-        self._cached_status = ''
-        self._cached_status_time = 0
-        return self._device.set_status(state, switchid)
-
-    def status(self):
-        """Get state of Tuya switch and cache the results."""
-        self._lock.acquire()
-        try:
-            now = time()
-            if not self._cached_status or now - self._cached_status_time > 20:
-                self._cached_status = self.__get_status()
-                self._cached_status_time = time()
-            return self._cached_status
-        finally:
-            self._lock.release()
-
-class TuyaDevice(SwitchDevice):
+class LocaltuyaSwitch(LocalTuyaEntity, SwitchEntity):
     """Representation of a Tuya switch."""
 
-    def __init__(self, device, name, icon, switchid):
+    def __init__(
+        self,
+        device,
+        config_entry,
+        switchid,
+        **kwargs,
+    ):
         """Initialize the Tuya switch."""
-        self._device = device
-        self._name = name
-        self._state = False
-        self._icon = icon
-        self._switchid = switchid
-        self._status = self._device.status()
-
-    @property
-    def name(self):
-        """Get name of Tuya switch."""
-        return self._name
+        super().__init__(device, config_entry, switchid, _LOGGER, **kwargs)
+        self._state = None
+        _LOGGER.debug("Initialized switch [%s]", self.name)
 
     @property
     def is_on(self):
@@ -137,32 +55,37 @@ class TuyaDevice(SwitchDevice):
         return self._state
 
     @property
-    def device_state_attributes(self):
+    def extra_state_attributes(self):
+        """Return device state attributes."""
         attrs = {}
-        try:
-            attrs[ATTR_CURRENT] = "{}".format(self._status['dps']['104'])
-            attrs[ATTR_CURRENT_CONSUMPTION] = "{}".format(self._status['dps']['105']/10)
-            attrs[ATTR_VOLTAGE] = "{}".format(self._status['dps']['106']/10)
-        except KeyError:
-            pass
+        if self.has_config(CONF_CURRENT):
+            attrs[ATTR_CURRENT] = self.dps(self._config[CONF_CURRENT])
+        if self.has_config(CONF_CURRENT_CONSUMPTION):
+            attrs[ATTR_CURRENT_CONSUMPTION] = (
+                self.dps(self._config[CONF_CURRENT_CONSUMPTION]) / 10
+            )
+        if self.has_config(CONF_VOLTAGE):
+            attrs[ATTR_VOLTAGE] = self.dps(self._config[CONF_VOLTAGE]) / 10
+
+        # Store the state
+        if self._state is not None:
+            attrs[ATTR_STATE] = self._state
+        elif self._last_state is not None:
+            attrs[ATTR_STATE] = self._last_state
         return attrs
 
-    @property
-    def icon(self):
-        """Return the icon."""
-        return self._icon
-
-    def turn_on(self, **kwargs):
+    async def async_turn_on(self, **kwargs):
         """Turn Tuya switch on."""
-        self._device.set_status(True, self._switchid)
+        await self._device.set_dp(True, self._dp_id)
 
-    def turn_off(self, **kwargs):
+    async def async_turn_off(self, **kwargs):
         """Turn Tuya switch off."""
-        self._device.set_status(False, self._switchid)
+        await self._device.set_dp(False, self._dp_id)
 
-    def update(self):
-        """Get state of Tuya switch."""
-        status = self._device.status()
-        self._status= status
-        self._state = status['dps'][self._switchid]
+    # Default value is the "OFF" state
+    def entity_default_value(self):
+        """Return False as the default value for this entity type."""
+        return False
 
+
+async_setup_entry = partial(async_setup_entry, DOMAIN, LocaltuyaSwitch, flow_schema)
